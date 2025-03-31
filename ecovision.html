@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EcoVision Pro - Waste Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    h1, h2, h3, h4 {
+      color: #27ae60;
+      margin-bottom: 0.5rem;
+    }
+    /* Wrap the camera view in a container with fixed height */
+    .camera-container {
+      position: relative;
+      height: 60vh;
+      margin-bottom: 1rem;
+      background: #000;
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .camera-box {
+      width: 100%;
+      height: 100%;
+    }
+    #webcam, #overlay {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Mirror effect by default */
+      -webkit-transform: scaleX(-1);
+    }
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+    /* Camera controls overlaid on camera view */
+    .camera-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 15px;
+      z-index: 2;
+    }
+    .control-btn {
+      background: rgba(0, 0, 0, 0.7);
+      border: none;
+      padding: 12px;
+      border-radius: 50%;
+      color: white;
+      cursor: pointer;
+      transition: 0.3s;
+      font-size: 1rem;
+    }
+    .control-btn:hover {
+      background: rgba(0, 0, 0, 0.9);
+    }
+    /* Position results over the bottom of the camera view */
+    #results {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.3);
+      max-height: 40%;
+      overflow-y: auto;
+    }
+    /* Performance warning stays fixed at the top */
+    #performanceWarning {
+      display: none;
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ff4757;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 25px;
+      z-index: 1000;
+      font-size: 0.9rem;
+    }
+    .science-facts {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .data-card {
+      padding: 1rem;
+      border-left: 4px solid;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .decomposition-timeline {
+      position: relative;
+      height: 40px;
+      background: #e9ecef;
+      border-radius: 20px;
+      overflow: hidden;
+      margin: 1rem 0;
+    }
+    .timeline-bar {
+      height: 100%;
+      transition: width 0.5s ease;
+    }
+    .impact-category {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      margin: 0.5rem 0;
+    }
+    .impact-icon {
+      font-size: 1.5rem;
+      width: 30px;
+      text-align: center;
+    }
+    .toxicity-meter {
+      width: 100%;
+      height: 8px;
+      background: #dee2e6;
+      border-radius: 4px;
+      margin: 0.5rem 0;
+    }
+    .source-link {
+      color: #27ae60;
+      text-decoration: none;
+      font-size: 0.9rem;
+      display: inline-block;
+      margin-top: 0.5rem;
+    }
+    @media (max-width: 600px) {
+      .camera-container {
+        height: 50vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="performanceWarning">
+    <i class="fas fa-exclamation-triangle"></i> Low performance detected - Reducing quality
+  </div>
+
+  <div class="container">
+    <h1 style="text-align: center; margin: 1rem 0;">
+      <i class="fas fa-leaf"></i> EcoVision Pro
+    </h1>
+
+    <!-- Camera container with fixed height -->
+    <div class="camera-container">
+      <div class="camera-box">
+        <video id="webcam" autoplay muted playsinline></video>
+        <canvas id="overlay"></canvas>
+      </div>
+      <!-- Overlaid controls -->
+      <div class="camera-controls">
+        <button class="control-btn" id="scanButton">
+          <i class="fas fa-search"></i>
+        </button>
+        <button class="control-btn" id="cameraSwitch">
+          <i class="fas fa-camera-retro"></i>
+        </button>
+        <button class="control-btn" id="flipButton">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+        <button class="control-btn" id="torchToggle" disabled>
+          <i class="fas fa-lightbulb"></i>
+        </button>
+      </div>
+      <!-- Results overlaid on the camera view -->
+      <div id="results"></div>
+    </div>
+  </div>
+
+  <script>
+    let net;
+    let isScanning = false;
+    let currentStream = null;
+    let frameCount = 0;
+    const PROCESS_EVERY = 3; // Process every 3rd frame
+    let qualityMode = 'high';
+    let currentFacingMode = 'user'; // Maintain current facing mode
+
+    // Variables for detection stabilization
+    let lastDetection = null;
+    let stableCount = 0;
+    const STABLE_THRESHOLD = 3; // Must detect the same object 3 times consecutively
+
+    // Enhanced Environmental Science Database
+    const ecoScienceData = {
+      plastic: {
+        decomposition: {
+          timeline: '450-1000 years',
+          stages: [
+            { years: 0, event: 'Production - Petroleum extraction' },
+            { years: 5, event: 'Photodegradation begins' },
+            { years: 100, event: 'Microplastics formation' },
+            { years: 450, event: 'Complete breakdown (estimate)' }
+          ]
+        },
+        environmentalImpact: {
+          marineLife: '1M+ marine animals killed/year',
+          co2PerKg: '6 kg CO2 emissions',
+          landfillSpace: 'Occupies 25% landfill space',
+          toxicity: 8.5
+        },
+        alternatives: ['Bamboo', 'Glass', 'Biodegradable polymers'],
+        references: [
+          {
+            title: "UNEP Plastic Waste Management",
+            url: "https://www.unep.org/plastic-waste"
+          }
+        ]
+      },
+      paper: {
+        decomposition: {
+          timeline: '2-6 months',
+          stages: [
+            { years: 0.01, event: 'Landfill deposition' },
+            { years: 0.1, event: 'Methane production peaks' },
+            { years: 0.5, event: 'Complete decomposition' }
+          ]
+        },
+        environmentalImpact: {
+          marineLife: 'Low direct impact',
+          co2PerKg: '1 kg CO2 emissions',
+          landfillSpace: 'Decomposes to 40% original volume',
+          toxicity: 2.3
+        },
+        alternatives: ['Digital documents', 'Stone paper', 'Recycled paper'],
+        references: [
+          {
+            title: "EPA Paper Recycling Guidelines",
+            url: "https://www.epa.gov/recycle"
+          }
+        ]
+      },
+      metal: {
+        decomposition: {
+          timeline: '50-200 years',
+          stages: [
+            { years: 0, event: 'Mining and production' },
+            { years: 10, event: 'Oxidation begins' },
+            { years: 50, event: 'Significant corrosion' },
+            { years: 200, event: 'Complete breakdown' }
+          ]
+        },
+        environmentalImpact: {
+          marineLife: 'Moderate impact on seabed ecosystems',
+          co2PerKg: '2.5 kg CO2 emissions',
+          landfillSpace: 'Permanent space occupation',
+          toxicity: 4.0
+        },
+        alternatives: ['Recycled metal', 'Bamboo alternatives', 'Biodegradable composites'],
+        references: [
+          {
+            title: "Metal Recycling Facts",
+            url: "https://www.isri.org/recycling-commodities/metals"
+          }
+        ]
+      }
+    };
+
+    async function setupWebcam() {
+      const video = document.getElementById('webcam');
+      // Stop any existing stream
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      const constraints = {
+        video: {
+          facingMode: currentFacingMode,
+          width: { ideal: qualityMode === 'high' ? 1280 : 640 },
+          height: { ideal: qualityMode === 'high' ? 720 : 480 },
+          frameRate: { ideal: 30, max: 15 }
+        }
+      };
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        currentStream = stream;
+        // Enable torch control if available
+        const track = stream.getVideoTracks()[0];
+        if (track.getCapabilities().torch) {
+          document.getElementById('torchToggle').disabled = false;
+        }
+        return new Promise(resolve => {
+          video.onloadedmetadata = () => {
+            video.width = video.videoWidth;
+            video.height = video.videoHeight;
+            resolve(video);
+          };
+        });
+      } catch (err) {
+        console.error('Camera error:', err);
+        alert('Camera access required for analysis');
+        return null;
+      }
+    }
+
+    // Toggle mirror effect for video and canvas
+    function toggleFlip() {
+      const video = document.getElementById('webcam');
+      const canvas = document.getElementById('overlay');
+      const currentTransform = video.style.transform;
+      if (currentTransform.includes('-1')) {
+        video.style.transform = 'scaleX(1)';
+        canvas.style.transform = 'scaleX(1)';
+      } else {
+        video.style.transform = 'scaleX(-1)';
+        canvas.style.transform = 'scaleX(-1)';
+      }
+    }
+
+    // Camera switching logic
+    document.getElementById('cameraSwitch').addEventListener('click', async () => {
+      currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+      await setupWebcam();
+      if (isScanning) detectObjects();
+    });
+
+    // Flip button event
+    document.getElementById('flipButton').addEventListener('click', toggleFlip);
+
+    // Torch control
+    document.getElementById('torchToggle').addEventListener('click', async () => {
+      const track = currentStream?.getVideoTracks()[0];
+      if (!track) return;
+      try {
+        await track.applyConstraints({
+          advanced: [{ torch: !track.getSettings().torch }]
+        });
+      } catch (err) {
+        console.error('Torch control failed:', err);
+      }
+    });
+
+    // Helper to choose a color based on toxicity score
+    function getEcoColor(score) {
+      if (score >= 8) return '#2ecc71';
+      if (score >= 5) return '#f1c40f';
+      return '#e74c3c';
+    }
+
+    function getMaxDecompositionYears(material) {
+      const timeline = ecoScienceData[material]?.decomposition?.timeline || '1000 years';
+      return parseInt(timeline.split('-').pop().replace(' years','').trim()) || 1000;
+    }
+
+    function createScienceCard(obj, material) {
+      const data = ecoScienceData[material] || ecoScienceData['plastic'];
+      return `
+        <div class="science-facts">
+          <h2><i class="fas fa-microscope"></i> Analysis: ${material.toUpperCase()}</h2>
+          <p>Detected: <strong>${obj.class}</strong> (${Math.round(obj.score * 100)}% confidence)</p>
+          <div class="decomposition-timeline">
+            <div class="timeline-bar" style="width: ${Math.min(100, (getMaxDecompositionYears(material) / 1000) * 100)}%; background: ${getEcoColor(data.environmentalImpact.toxicity)}">
+            </div>
+          </div>
+          <div class="timeline-label">
+            ${data.decomposition.timeline} decomposition period
+          </div>
+          <div class="data-grid">
+            <div class="data-card" style="border-color: #e74c3c">
+              <h4><i class="fas fa-fish"></i> Marine Impact</h4>
+              <p>${data.environmentalImpact.marineLife}</p>
+            </div>
+            <div class="data-card" style="border-color: #f1c40f">
+              <h4><i class="fas fa-industry"></i> CO2 Emissions</h4>
+              <p>${data.environmentalImpact.co2PerKg} per kg</p>
+            </div>
+            <div class="data-card" style="border-color: #2ecc71">
+              <h4><i class="fas fa-recycle"></i> Alternatives</h4>
+              <ul>
+                ${data.alternatives.map(alt => `<li>${alt}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function drawDetection(ctx, obj, material) {
+      const colors = {
+        plastic: '#FF4757',
+        metal: '#3498db',
+        paper: '#2ed573',
+        unknown: '#95a5a6'
+      };
+      const color = colors[material] || '#95a5a6';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(...obj.bbox);
+      ctx.fillStyle = color;
+      const text = `${obj.class} (${Math.round(obj.score * 100)}%) - ${material}`;
+      const textWidth = ctx.measureText(text).width;
+      ctx.fillRect(obj.bbox[0], obj.bbox[1] - 20, textWidth + 10, 20);
+      ctx.fillStyle = 'white';
+      ctx.font = '14px Arial';
+      ctx.fillText(text, obj.bbox[0] + 5, obj.bbox[1] - 5);
+    }
+
+    async function detectObjects() {
+      if (!isScanning) return;
+      const startTime = performance.now();
+      frameCount++;
+      if (frameCount % PROCESS_EVERY !== 0) {
+        requestAnimationFrame(detectObjects);
+        return;
+      }
+      try {
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const objects = await net.detect(video);
+        let updatedDetection = null;
+        objects.forEach(obj => {
+          if (obj.score < 0.75) return;
+          let material = 'unknown';
+          if (obj.class.includes('bottle') || obj.class.includes('cup')) {
+            material = 'plastic';
+          } else if (obj.class.includes('can')) {
+            material = 'metal';
+          } else if (obj.class.includes('paper') || obj.class.includes('book')) {
+            material = 'paper';
+          }
+          drawDetection(ctx, obj, material);
+          if (!updatedDetection) {
+            updatedDetection = { obj, material };
+          }
+        });
+        const resultsDiv = document.getElementById('results');
+        if (updatedDetection) {
+          if (
+            lastDetection &&
+            lastDetection.obj.class === updatedDetection.obj.class &&
+            lastDetection.material === updatedDetection.material
+          ) {
+            stableCount++;
+          } else {
+            stableCount = 1;
+          }
+          lastDetection = updatedDetection;
+          if (stableCount >= STABLE_THRESHOLD) {
+            resultsDiv.innerHTML = createScienceCard(updatedDetection.obj, updatedDetection.material);
+          }
+        } else {
+          stableCount = 0;
+          lastDetection = null;
+          resultsDiv.innerHTML = '';
+        }
+        const processingTime = performance.now() - startTime;
+        if (processingTime > 100 && qualityMode === 'high') {
+          qualityMode = 'low';
+          document.getElementById('performanceWarning').style.display = 'block';
+          await setupWebcam();
+        }
+      } catch (err) {
+        console.error('Detection error:', err);
+      }
+      requestAnimationFrame(detectObjects);
+    }
+
+    document.getElementById('scanButton').addEventListener('click', async () => {
+      if (!isScanning) {
+        const video = await setupWebcam();
+        if (video) {
+          isScanning = true;
+          document.getElementById('scanButton').innerHTML = '<i class="fas fa-stop"></i>';
+          detectObjects();
+        }
+      } else {
+        isScanning = false;
+        document.getElementById('scanButton').innerHTML = '<i class="fas fa-search"></i>';
+        if (currentStream) {
+          currentStream.getTracks().forEach(track => track.stop());
+        }
+      }
+    });
+
+    (async function init() {
+      net = await cocoSsd.load();
+      await setupWebcam();
+      if (/Mobi|Android/i.test(navigator.userAgent)) {
+        qualityMode = 'low';
+        document.getElementById('performanceWarning').style.display = 'block';
+      }
+    })();
+  </script>
+</body>
+</html>
