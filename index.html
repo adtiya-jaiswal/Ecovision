@@ -28,7 +28,7 @@
       color: #27ae60;
       margin-bottom: 0.5rem;
     }
-    /* Wrap the camera view in a container with fixed height */
+    /* Fixed camera container */
     .camera-container {
       position: relative;
       height: 60vh;
@@ -55,7 +55,7 @@
       left: 0;
       pointer-events: none;
     }
-    /* Camera controls overlaid on camera view */
+    /* Camera controls */
     .camera-controls {
       position: absolute;
       bottom: 20px;
@@ -78,7 +78,7 @@
     .control-btn:hover {
       background: rgba(0, 0, 0, 0.9);
     }
-    /* Position results over the bottom of the camera view */
+    /* Results overlay */
     #results {
       position: absolute;
       bottom: 0;
@@ -90,7 +90,7 @@
       max-height: 40%;
       overflow-y: auto;
     }
-    /* Performance warning stays fixed at the top */
+    /* Performance warning */
     #performanceWarning {
       display: none;
       position: fixed;
@@ -170,19 +170,15 @@
   <div id="performanceWarning">
     <i class="fas fa-exclamation-triangle"></i> Low performance detected - Reducing quality
   </div>
-
   <div class="container">
     <h1 style="text-align: center; margin: 1rem 0;">
       <i class="fas fa-leaf"></i> EcoVision Pro
     </h1>
-
-    <!-- Camera container with fixed height -->
     <div class="camera-container">
       <div class="camera-box">
         <video id="webcam" autoplay muted playsinline></video>
         <canvas id="overlay"></canvas>
       </div>
-      <!-- Overlaid controls -->
       <div class="camera-controls">
         <button class="control-btn" id="scanButton">
           <i class="fas fa-search"></i>
@@ -197,26 +193,26 @@
           <i class="fas fa-lightbulb"></i>
         </button>
       </div>
-      <!-- Results overlaid on the camera view -->
       <div id="results"></div>
     </div>
   </div>
-
   <script>
     let net;
     let isScanning = false;
     let currentStream = null;
     let frameCount = 0;
-    const PROCESS_EVERY = 3; // Process every 3rd frame
-    let qualityMode = 'high';
-    let currentFacingMode = 'user'; // Maintain current facing mode
+    // Process every 5th frame to lighten the load
+    const PROCESS_EVERY = 5;
+    // Set quality mode: use 'low' on mobile, 'high' otherwise
+    let qualityMode = (/Mobi|Android/i.test(navigator.userAgent)) ? 'low' : 'high';
+    let currentFacingMode = 'user';
 
     // Variables for detection stabilization
     let lastDetection = null;
     let stableCount = 0;
-    const STABLE_THRESHOLD = 3; // Must detect the same object 3 times consecutively
+    const STABLE_THRESHOLD = 3;
 
-    // Enhanced Environmental Science Database
+    // Environmental Science Data
     const ecoScienceData = {
       plastic: {
         decomposition: {
@@ -236,10 +232,7 @@
         },
         alternatives: ['Bamboo', 'Glass', 'Biodegradable polymers'],
         references: [
-          {
-            title: "UNEP Plastic Waste Management",
-            url: "https://www.unep.org/plastic-waste"
-          }
+          { title: "UNEP Plastic Waste Management", url: "https://www.unep.org/plastic-waste" }
         ]
       },
       paper: {
@@ -259,10 +252,7 @@
         },
         alternatives: ['Digital documents', 'Stone paper', 'Recycled paper'],
         references: [
-          {
-            title: "EPA Paper Recycling Guidelines",
-            url: "https://www.epa.gov/recycle"
-          }
+          { title: "EPA Paper Recycling Guidelines", url: "https://www.epa.gov/recycle" }
         ]
       },
       metal: {
@@ -283,17 +273,14 @@
         },
         alternatives: ['Recycled metal', 'Bamboo alternatives', 'Biodegradable composites'],
         references: [
-          {
-            title: "Metal Recycling Facts",
-            url: "https://www.isri.org/recycling-commodities/metals"
-          }
+          { title: "Metal Recycling Facts", url: "https://www.isri.org/recycling-commodities/metals" }
         ]
       }
     };
 
     async function setupWebcam() {
       const video = document.getElementById('webcam');
-      // Stop any existing stream
+      // Stop existing stream if any
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
@@ -309,7 +296,7 @@
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
         currentStream = stream;
-        // Enable torch control if available
+        // Enable torch if available
         const track = stream.getVideoTracks()[0];
         if (track.getCapabilities().torch) {
           document.getElementById('torchToggle').disabled = false;
@@ -328,7 +315,7 @@
       }
     }
 
-    // Toggle mirror effect for video and canvas
+    // Toggle mirror effect
     function toggleFlip() {
       const video = document.getElementById('webcam');
       const canvas = document.getElementById('overlay');
@@ -342,14 +329,13 @@
       }
     }
 
-    // Camera switching logic
+    // Camera switching
     document.getElementById('cameraSwitch').addEventListener('click', async () => {
-      currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+      currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
       await setupWebcam();
       if (isScanning) detectObjects();
     });
-
-    // Flip button event
+    
     document.getElementById('flipButton').addEventListener('click', toggleFlip);
 
     // Torch control
@@ -357,15 +343,13 @@
       const track = currentStream?.getVideoTracks()[0];
       if (!track) return;
       try {
-        await track.applyConstraints({
-          advanced: [{ torch: !track.getSettings().torch }]
-        });
+        await track.applyConstraints({ advanced: [{ torch: !track.getSettings().torch }] });
       } catch (err) {
         console.error('Torch control failed:', err);
       }
     });
 
-    // Helper to choose a color based on toxicity score
+    // Helper: color based on toxicity
     function getEcoColor(score) {
       if (score >= 8) return '#2ecc71';
       if (score >= 5) return '#f1c40f';
@@ -384,8 +368,7 @@
           <h2><i class="fas fa-microscope"></i> Analysis: ${material.toUpperCase()}</h2>
           <p>Detected: <strong>${obj.class}</strong> (${Math.round(obj.score * 100)}% confidence)</p>
           <div class="decomposition-timeline">
-            <div class="timeline-bar" style="width: ${Math.min(100, (getMaxDecompositionYears(material) / 1000) * 100)}%; background: ${getEcoColor(data.environmentalImpact.toxicity)}">
-            </div>
+            <div class="timeline-bar" style="width: ${Math.min(100, (getMaxDecompositionYears(material)/1000)*100)}%; background: ${getEcoColor(data.environmentalImpact.toxicity)}"></div>
           </div>
           <div class="timeline-label">
             ${data.decomposition.timeline} decomposition period
@@ -411,12 +394,7 @@
     }
 
     function drawDetection(ctx, obj, material) {
-      const colors = {
-        plastic: '#FF4757',
-        metal: '#3498db',
-        paper: '#2ed573',
-        unknown: '#95a5a6'
-      };
+      const colors = { plastic: '#FF4757', metal: '#3498db', paper: '#2ed573', unknown: '#95a5a6' };
       const color = colors[material] || '#95a5a6';
       ctx.strokeStyle = color;
       ctx.lineWidth = 3;
@@ -483,6 +461,7 @@
           resultsDiv.innerHTML = '';
         }
         const processingTime = performance.now() - startTime;
+        // If processing time exceeds 100ms and quality is high, switch to low quality
         if (processingTime > 100 && qualityMode === 'high') {
           qualityMode = 'low';
           document.getElementById('performanceWarning').style.display = 'block';
@@ -514,8 +493,8 @@
     (async function init() {
       net = await cocoSsd.load();
       await setupWebcam();
+      // Show performance warning on mobile if using low quality by default
       if (/Mobi|Android/i.test(navigator.userAgent)) {
-        qualityMode = 'low';
         document.getElementById('performanceWarning').style.display = 'block';
       }
     })();
